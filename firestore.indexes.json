@@ -1,14 +1,4 @@
 {
-  "indexes": [
-    {
-      "collectionGroup": "animes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "watched", "order": "ASCENDING" },
-        { "fieldPath": "order", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "ASCENDING" }
-      ]
-    }
-  ],
+  "indexes": [],
   "fieldOverrides": []
 }

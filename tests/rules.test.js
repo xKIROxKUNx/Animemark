@@ -49,7 +49,7 @@ const animeValido = (uid, extra = {}) => ({
   watchedAt: null,
   watchedBy: null,
   createdAt: new Date(),
-  order: 'a0',
+  order: '0a0',
   ...extra,
 });
 
@@ -145,7 +145,7 @@ describe('animes', () => {
   it('deixa um membro adicionar, editar e remover', async () => {
     const db = comoMembro(ANA);
     await assertSucceeds(addDoc(collection(db, 'animes'), animeValido(ANA.uid)));
-    await assertSucceeds(updateDoc(doc(db, 'animes', 'anime-1'), { order: 'a1' }));
+    await assertSucceeds(updateDoc(doc(db, 'animes', 'anime-1'), { order: '0a1' }));
     await assertSucceeds(deleteDoc(doc(db, 'animes', 'anime-1')));
   });
 
@@ -156,7 +156,7 @@ describe('animes', () => {
         watched: true,
         watchedBy: BIA.uid,
         watchedAt: new Date(),
-        order: 'b0',
+        order: '1a0',
       })
     );
   });

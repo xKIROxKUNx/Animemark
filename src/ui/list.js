@@ -141,7 +141,7 @@ async function aoSoltar(evt) {
   try {
     // O snapshot otimista do Firestore chega quase junto e redesenha a lista
     // na ordem nova; só precisamos tratar a falha.
-    await reordenarAnime(el.dataset.id, anterior, seguinte);
+    await reordenarAnime(el.dataset.id, anterior, seguinte, el.dataset.watched === '1');
   } catch (erro) {
     console.error(erro);
     toastErro('Não foi possível salvar a nova ordem.');

@@ -16,20 +16,23 @@ import { db } from './firebase.js';
 const ANIMES = 'animes';
 
 /**
- * A ordenação é (watched, order, createdAt):
- *  - `watched` vem primeiro e em Firestore `false` < `true`, então os
- *    assistidos ficam sempre no fim, mesmo depois de adicionar animes novos;
- *  - `order` é um índice fracionário (string), o que faz cada reordenação
- *    custar UMA escrita em vez de renumerar a lista inteira;
- *  - `createdAt` só desempata caso duas chaves iguais apareçam por corrida.
+ * `order` é um índice fracionário (string) com o grupo embutido no primeiro
+ * caractere: '0' para "a assistir" e '1' para "assistido".
+ *
+ * Isso resolve duas coisas de uma vez. Os assistidos ficam sempre no fim,
+ * inclusive depois de adicionar animes novos ('0…' < '1…'), e a lista inteira
+ * sai com um ÚNICO `orderBy('order')` — que o Firestore atende com o índice
+ * automático de campo simples. Sem índice composto para configurar, sem espera
+ * de construção e sem o erro `failed-precondition` em projeto novo.
+ *
+ * Reordenar continua custando uma única escrita: só a chave do item movido
+ * muda, nunca a lista inteira.
  */
+const prefixoDe = (assistido) => (assistido ? '1' : '0');
+const semPrefixo = (chave) => (typeof chave === 'string' && chave.length > 1 ? chave.slice(1) : null);
+
 export function observarAnimes(aoMudar, aoFalhar) {
-  const q = query(
-    collection(db, ANIMES),
-    orderBy('watched'),
-    orderBy('order'),
-    orderBy('createdAt')
-  );
+  const q = query(collection(db, ANIMES), orderBy('order'));
 
   return onSnapshot(
     q,
@@ -59,14 +62,11 @@ function chaveEntre(a, b) {
   }
 }
 
-const ultimaChave = (animes, assistido) => {
-  const grupo = animes.filter((a) => Boolean(a.watched) === assistido);
-  return grupo.length ? grupo[grupo.length - 1].order : null;
-};
-
-/** Chave para um item novo: entra no fim do grupo "para assistir". */
+/** Chave que coloca o item no fim do grupo indicado. */
 export function chaveNoFim(animes, assistido = false) {
-  return chaveEntre(ultimaChave(animes, assistido), null);
+  const grupo = animes.filter((a) => Boolean(a.watched) === assistido);
+  const ultima = grupo.length ? semPrefixo(grupo[grupo.length - 1].order) : null;
+  return prefixoDe(assistido) + chaveEntre(ultima, null);
 }
 
 export function adicionarAnime(dados, { uid, apelido }, animes) {
@@ -116,12 +116,13 @@ export function definirAssistido(id, assistido, animes, uid) {
 }
 
 /**
- * Reposiciona um anime entre dois vizinhos (ambos do mesmo grupo).
+ * Reposiciona um anime entre dois vizinhos do mesmo grupo.
  * @param {string|null} chaveAnterior chave do item que ficará acima
  * @param {string|null} chaveSeguinte chave do item que ficará abaixo
+ * @param {boolean} assistido grupo do item movido (define o prefixo)
  */
-export function reordenarAnime(id, chaveAnterior, chaveSeguinte) {
+export function reordenarAnime(id, chaveAnterior, chaveSeguinte, assistido) {
   return updateDoc(doc(db, ANIMES, id), {
-    order: chaveEntre(chaveAnterior, chaveSeguinte),
+    order: prefixoDe(assistido) + chaveEntre(semPrefixo(chaveAnterior), semPrefixo(chaveSeguinte)),
   });
 }

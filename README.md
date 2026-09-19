@@ -42,7 +42,10 @@ Vite · JavaScript puro (sem framework) · Firebase v11 (Auth + Firestore) ·
 vite-plugin-pwa (Workbox) · SortableJS · fractional-indexing
 
 A reordenação usa [índices fracionários](https://observablehq.com/@dgreensp/implementing-fractional-indexing):
-mover um card custa **uma** escrita, não uma renumeração da lista inteira.
+mover um card custa **uma** escrita, não uma renumeração da lista inteira. O
+grupo (a assistir / assistido) vai embutido no primeiro caractere da chave, o
+que mantém os assistidos no fim e deixa a lista inteira sair com um único
+`orderBy('order')` — sem índice composto para configurar.
 
 ## Scripts
 

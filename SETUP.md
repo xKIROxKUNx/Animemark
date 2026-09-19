@@ -51,12 +51,18 @@ node scripts/provisionar.mjs --chave ~/Downloads/chave.json \
   --conta amiga@exemplo.com:outraSenha
 ```
 
-Ele cria o banco do Firestore, liga o login por e-mail/senha, registra o app
-web e grava `src/firebase-config.js`, cria as duas contas, cria os documentos
-de ativação e publica as regras e os índices. Rodar de novo não estraga nada.
+Ele liga o login por e-mail/senha, autoriza o domínio do GitHub Pages, registra
+o app web e grava `src/firebase-config.js`, cria as contas e os documentos de
+ativação, e publica as regras. Rodar de novo não estraga nada.
 
-Sobram só dois cliques no console: adicionar `xkiroxkunx.github.io` aos
-domínios autorizados do Auth e ligar o GitHub Pages (passo 5).
+Duas coisas o script **não** consegue fazer, porque a chave padrão do Admin SDK
+não tem permissão de `serviceusage` — e ele diz isso na saída se faltarem:
+
+- **criar o banco do Firestore** (passo 1.2 abaixo) — é o que ativa a API;
+- **inicializar o Authentication** (passo 1.3) — um clique em "Comece agora".
+
+Faça esses dois no console antes de rodar o script. Depois sobra só ligar o
+GitHub Pages (passo 5).
 
 > A chave de service account é uma credencial de verdade. Apague o arquivo e a
 > chave no console assim que terminar.
@@ -85,11 +91,12 @@ nada. É esse o mecanismo de ativação.
 npm install
 npx firebase login          # abre o navegador
 npx firebase use --add      # escolha o projeto criado no passo 1
-npx firebase deploy --only firestore:rules,firestore:indexes
+npx firebase deploy --only firestore:rules
 ```
 
-O índice composto (`watched`, `order`, `createdAt`) leva alguns minutos para
-ficar pronto. Enquanto isso, a lista pode mostrar um aviso — é temporário.
+Não há índice composto para criar: a lista usa um único `orderBy('order')`, com
+o grupo (a assistir / assistido) embutido no primeiro caractere da chave. O
+Firestore atende isso com o índice automático de campo simples.
 
 ## 5. Publicar no GitHub Pages
 
@@ -136,5 +143,4 @@ node scripts/gerar-icones.mjs
 | "Conta não autorizada" | Falta o doc `members/{uid}` ou o `email` não bate |
 | `auth/operation-not-allowed` | E-mail/senha não foi ativado no passo 1.3 |
 | `auth/unauthorized-domain` | Falta adicionar `xkiroxkunx.github.io` no passo 2.3 |
-| Lista vazia com aviso de índice | O índice do passo 4 ainda está sendo construído |
 | Campo do IMDb em branco | O Wikidata não mapeia esse anime — preencha à mão no modal |

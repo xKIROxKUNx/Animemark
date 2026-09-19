@@ -55,12 +55,10 @@ async function estadoNoServidor() {
       order: d.fields.order.stringValue,
       watched: d.fields.watched.booleanValue === true,
     }))
-    // O Firestore ordena string por bytes UTF-8, e as chaves fracionárias usam
-    // maiúsculas e minúsculas ('Zz' < 'a0'). localeCompare inverteria isso.
-    .sort(
-      (a, b) =>
-        Number(a.watched) - Number(b.watched) || (a.order < b.order ? -1 : a.order > b.order ? 1 : 0)
-    )
+    // Mesma ordenação do app: só a chave. O prefixo de grupo ('0'/'1') já
+    // empurra os assistidos para o fim. Comparação por código de caractere,
+    // como o Firestore faz — localeCompare inverteria 'Zz' e 'a0'.
+    .sort((a, b) => (a.order < b.order ? -1 : a.order > b.order ? 1 : 0))
     .map((a) => ({ title: a.title, watched: a.watched }));
 }
 

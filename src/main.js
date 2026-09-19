@@ -164,9 +164,8 @@ function iniciarListaDeAnimes() {
     },
     (erro) => {
       console.error(erro);
-      if (erro.code === 'failed-precondition') {
-        toastErro('O índice do Firestore ainda está sendo criado. Tente de novo em instantes.');
-      } else if (erro.code !== 'permission-denied') {
+      // permission-denied já é tratado pela tela de "conta não autorizada".
+      if (erro.code !== 'permission-denied') {
         toastErro('Não foi possível carregar a lista.');
       }
     }

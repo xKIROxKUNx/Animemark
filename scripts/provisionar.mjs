@@ -8,22 +8,21 @@
 // O que ele faz (tudo idempotente — rodar duas vezes não estraga nada):
 //   1. cria o banco do Firestore, se ainda não existir;
 //   2. liga o provedor de login por e-mail/senha;
-//   3. registra o app web e grava a config em src/firebase-config.js;
-//   4. cria as contas informadas (ou reaproveita as existentes);
-//   5. cria os documentos de ativação `members/{uid}`;
-//   6. publica as regras e os índices (via firebase-tools).
+//   3. autoriza o domínio do GitHub Pages no Authentication;
+//   4. registra o app web e grava a config em src/firebase-config.js;
+//   5. cria as contas informadas (ou reaproveita as existentes) e os
+//      documentos de ativação `members/{uid}`;
+//   6. publica as regras de segurança.
 //
 // A chave é uma credencial: apague-a do disco e do console quando terminar.
-import { execFile } from 'node:child_process';
 import { createSign } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as espera } from 'node:timers/promises';
-import { promisify } from 'node:util';
 
-const execFileP = promisify(execFile);
 const RAIZ = new URL('..', import.meta.url).pathname;
 const REGIAO_PADRAO = 'southamerica-east1';
+const DOMINIO_PAGES = 'xkiroxkunx.github.io';
 
 // ----------------------------------------------------------- argumentos ---
 
@@ -176,6 +175,19 @@ async function ligarEmailSenha(api, projeto) {
   return 'ativado';
 }
 
+/** Sem isso o login falha no site publicado (auth/unauthorized-domain). */
+async function garantirDominio(api, projeto, dominio) {
+  const cfg = await api(`https://identitytoolkit.googleapis.com/admin/v2/projects/${projeto}/config`);
+  const atuais = cfg.authorizedDomains ?? [];
+  if (atuais.includes(dominio)) return `${dominio} já autorizado`;
+
+  await api(
+    `https://identitytoolkit.googleapis.com/admin/v2/projects/${projeto}/config?updateMask=authorizedDomains`,
+    { metodo: 'PATCH', corpo: { authorizedDomains: [...atuais, dominio] } }
+  );
+  return `${dominio} autorizado`;
+}
+
 async function garantirAppWeb(api, projeto) {
   const lista = await api(`https://firebase.googleapis.com/v1beta1/projects/${projeto}/webApps`);
   let app = (lista.apps ?? [])[0];
@@ -252,17 +264,28 @@ export const firebaseConfig = {
   return caminho;
 }
 
-async function publicarRegras(caminhoChave, projeto) {
-  const { stdout, stderr } = await execFileP(
-    'npx',
-    ['firebase', 'deploy', '--only', 'firestore:rules,firestore:indexes', '--project', projeto],
-    {
-      cwd: RAIZ,
-      env: { ...process.env, GOOGLE_APPLICATION_CREDENTIALS: caminhoChave },
-      maxBuffer: 10 * 1024 * 1024,
-    }
-  );
-  return `${stdout}${stderr}`.trim().split('\n').slice(-3).join('\n');
+/**
+ * Publica as regras pela API do Firebase Rules em vez de `firebase deploy`:
+ * o CLI valida o arquivo chamando `projects/*:test`, que exige uma permissão
+ * que a chave padrão do Admin SDK não tem. Criar o ruleset e mover o release
+ * funciona com ela.
+ *
+ * Não há índice composto para publicar — a lista usa um único `orderBy('order')`
+ * com o grupo embutido na chave (veja src/animes.js).
+ */
+async function publicarRegras(api, projeto) {
+  const fonte = await readFile(resolve(RAIZ, 'firestore.rules'), 'utf8');
+  const ruleset = await api(`https://firebaserules.googleapis.com/v1/projects/${projeto}/rulesets`, {
+    metodo: 'POST',
+    corpo: { source: { files: [{ name: 'firestore.rules', content: fonte }] } },
+  });
+
+  const release = `projects/${projeto}/releases/cloud.firestore`;
+  await api(`https://firebaserules.googleapis.com/v1/${release}`, {
+    metodo: 'PATCH',
+    corpo: { release: { name: release, rulesetName: ruleset.name } },
+  });
+  return ruleset.name.split('/').pop();
 }
 
 // -------------------------------------------------------------- roteiro ---
@@ -298,14 +321,16 @@ async function principal() {
   );
   const auth = await tentar('2. Login e-mail/senha ', () => ligarEmailSenha(api, projeto));
 
-  const app = await tentar('3. App web ...........', async () => {
+  await tentar('3. Domínio do Pages ..', () => garantirDominio(api, projeto, DOMINIO_PAGES));
+
+  await tentar('4. App web ...........', async () => {
     const config = await garantirAppWeb(api, projeto);
     await gravarConfig(config);
     return `${config.appId} → config gravada em src/firebase-config.js`;
   });
 
   if (auth.ok && firestore.ok) {
-    console.log('4. Contas e ativação:');
+    console.log('5. Contas e ativação:');
     for (const conta of args.contas) {
       await tentar(`   ${conta.email}`, async () => {
         const { uid, novo } = await garantirConta(api, projeto, conta);
@@ -314,16 +339,13 @@ async function principal() {
       });
     }
   } else {
-    console.log('4. Contas e ativação:    pulado (depende dos passos 1 e 2)');
+    console.log('5. Contas e ativação:    pulado (depende dos passos 1 e 2)');
   }
 
   if (firestore.ok) {
-    await tentar('5. Regras e índices ..', async () => {
-      const saida = await publicarRegras(caminhoChave, projeto);
-      return `publicados\n${saida.split('\n').map((l) => `   ${l}`).join('\n')}`;
-    });
+    await tentar('6. Regras ............', async () => `ruleset ${await publicarRegras(api, projeto)}`);
   } else {
-    console.log('5. Regras e índices ..   pulado (depende do passo 1)');
+    console.log('6. Regras ............   pulado (depende do passo 1)');
   }
 
   if (pendencias.length) {
@@ -335,9 +357,8 @@ async function principal() {
   }
 
   console.log(`
-Pronto. Ainda falta, no console:
-  - Authentication → Settings → Domínios autorizados: adicionar xkiroxkunx.github.io
-  - Settings → Pages do repositório: Source = GitHub Actions
+Pronto. Só falta ligar o GitHub Pages no repositório:
+  Settings → Pages → Source: GitHub Actions
 
 E apague a chave de service account (aqui e no console) quando terminar.`);
 }
