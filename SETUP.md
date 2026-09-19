@@ -39,6 +39,30 @@ Não existe cadastro dentro do app — de propósito. As contas nascem no consol
 2. Informe o e-mail e uma senha. Repita para a segunda pessoa.
 3. **Copie o UID** de cada uma (a coluna "Identificador do usuário").
 
+## Atalho: provisionar tudo por script
+
+Os passos 2, 3 e 4 podem ser feitos de uma vez. No console, em
+**Configurações do projeto → Contas de serviço → Gerar nova chave privada**,
+baixe o JSON e rode:
+
+```bash
+node scripts/provisionar.mjs --chave ~/Downloads/chave.json \
+  --conta voce@exemplo.com:senhaInicial \
+  --conta amiga@exemplo.com:outraSenha
+```
+
+Ele cria o banco do Firestore, liga o login por e-mail/senha, registra o app
+web e grava `src/firebase-config.js`, cria as duas contas, cria os documentos
+de ativação e publica as regras e os índices. Rodar de novo não estraga nada.
+
+Sobram só dois cliques no console: adicionar `xkiroxkunx.github.io` aos
+domínios autorizados do Auth e ligar o GitHub Pages (passo 5).
+
+> A chave de service account é uma credencial de verdade. Apague o arquivo e a
+> chave no console assim que terminar.
+
+Se preferir fazer à mão, siga os passos 2 a 4 abaixo.
+
 ## 4. Ativar as contas e aplicar as regras
 
 ### Ativação (é o que libera o acesso)
