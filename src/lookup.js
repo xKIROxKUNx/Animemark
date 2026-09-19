@@ -40,43 +40,88 @@ function normalizar(item) {
   };
 }
 
+/** Monta a URL da busca. `completa` liga os filtros opcionais do Jikan. */
+function urlBusca(q, completa) {
+  const params = new URLSearchParams({ q, limit: '10' });
+  if (completa) {
+    params.set('sfw', 'true');
+    params.set('order_by', 'members');
+    params.set('sort', 'desc');
+  }
+  return `${JIKAN}?${params}`;
+}
+
+async function pedir(url, sinal) {
+  const resp = await fetch(url, { signal: sinal });
+  if (!resp.ok) {
+    const e = new Error(`HTTP ${resp.status}`);
+    e.status = resp.status;
+    throw e;
+  }
+  return resp.json();
+}
+
 /**
  * Busca animes por título no Jikan.
+ *
+ * Se algum filtro opcional for recusado (4xx), tenta de novo só com `q` e
+ * `limit` — o mínimo que a API sempre aceita — em vez de desistir.
+ *
  * @returns {Promise<Array>} lista normalizada (vazia se nada for encontrado)
- * @throws {Error} com `code` 'abortado' | 'rate-limit' | 'rede'
+ * @throws {Error} com `code` 'abortado' | 'tempo' | 'rate-limit' | 'http' | 'rede'
+ *                 e `detalhe` com o que deu errado de fato
  */
 export async function buscarAnimes(termo, sinalExterno) {
   const q = termo.trim();
   if (q.length < 2) return [];
 
   const { sinal, limpar } = comTimeout(sinalExterno);
-  const url = `${JIKAN}?q=${encodeURIComponent(q)}&limit=10&sfw=true&order_by=members&sort=desc`;
 
   try {
-    const resp = await fetch(url, { signal: sinal });
-    if (resp.status === 429) {
-      const e = new Error('Muitas buscas seguidas. Espere um instante.');
-      e.code = 'rate-limit';
-      throw e;
+    let json;
+    try {
+      json = await pedir(urlBusca(q, true), sinal);
+    } catch (erro) {
+      if (erro.status && erro.status !== 429 && erro.status < 500) {
+        console.warn(`Jikan recusou os filtros (${erro.message}); tentando sem eles.`);
+        json = await pedir(urlBusca(q, false), sinal);
+      } else {
+        throw erro;
+      }
     }
-    if (!resp.ok) {
-      const e = new Error('A busca falhou.');
-      e.code = 'rede';
-      throw e;
-    }
-    const json = await resp.json();
     return Array.isArray(json.data) ? json.data.map(normalizar) : [];
   } catch (erro) {
-    if (erro.name === 'AbortError') {
-      const e = new Error('Busca cancelada.');
-      e.code = 'abortado';
-      throw e;
-    }
-    if (!erro.code) erro.code = 'rede';
-    throw erro;
+    throw classificar(erro, sinalExterno);
   } finally {
     limpar();
   }
+}
+
+/**
+ * Traduz a falha para algo acionável. A diferença entre "a rede não chegou lá"
+ * e "a API respondeu com erro" muda completamente o que a pessoa deve fazer.
+ */
+function classificar(erro, sinalExterno) {
+  const e = new Error(erro.message);
+
+  if (erro.name === 'AbortError') {
+    // Abortamos por duas razões: busca nova substituindo a anterior, ou estouro
+    // do tempo limite.
+    e.code = sinalExterno?.aborted ? 'abortado' : 'tempo';
+  } else if (erro.status === 429) {
+    e.code = 'rate-limit';
+  } else if (erro.status) {
+    e.code = 'http';
+    e.detalhe = `HTTP ${erro.status}`;
+  } else {
+    // fetch() só lança TypeError quando a requisição nem completou: DNS, TLS,
+    // CORS, offline ou bloqueio na rede.
+    e.code = 'rede';
+    e.detalhe = erro.message;
+  }
+
+  console.error(`Busca no Jikan falhou [${e.code}]:`, erro);
+  return e;
 }
 
 /**

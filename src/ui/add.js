@@ -5,6 +5,19 @@ import { toast, toastErro } from './toast.js';
 
 const DEBOUNCE_MS = 500;
 
+function mensagemDeErro(erro) {
+  switch (erro.code) {
+    case 'rate-limit':
+      return 'Muitas buscas seguidas. Espere um instante e tente de novo.';
+    case 'tempo':
+      return 'A busca demorou demais para responder. Tente de novo.';
+    case 'http':
+      return `O MyAnimeList respondeu com erro (${erro.detalhe}). Tente de novo em instantes ou adicione manualmente.`;
+    default:
+      return 'Não consegui falar com api.jikan.moe — sua rede pode estar bloqueando o site. Adicione manualmente por enquanto.';
+  }
+}
+
 function resultadoEl(item, aoEscolher) {
   const li = document.createElement('li');
 
@@ -122,10 +135,7 @@ export function abrirAdicionar(sessao, obterAnimes) {
       for (const item of itens) resultados.append(resultadoEl(item, escolher));
     } catch (erro) {
       if (erro.code === 'abortado') return;
-      status.textContent =
-        erro.code === 'rate-limit'
-          ? 'Muitas buscas seguidas. Espere um instante e tente de novo.'
-          : 'A busca falhou. Confira sua conexão ou adicione manualmente.';
+      status.textContent = mensagemDeErro(erro);
     }
   };
 
