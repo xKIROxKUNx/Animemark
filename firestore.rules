@@ -1,0 +1,73 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------------------------------------------------------------------
+    // Ativação de conta
+    //
+    // Criar o usuário no Firebase Console NÃO basta. A conta só é válida se
+    // existir um documento `members/{uid}` cujo campo `email` seja igual ao
+    // e-mail autenticado. Esse documento só pode ser criado pelo Console ou
+    // pelo Admin SDK -- nenhum cliente consegue criar, apagar ou trocar o
+    // e-mail dele.
+    // ---------------------------------------------------------------------
+
+    function memberDoc() {
+      return get(/databases/$(database)/documents/members/$(request.auth.uid)).data;
+    }
+
+    function isMember() {
+      return request.auth != null
+        && request.auth.token.email is string
+        && exists(/databases/$(database)/documents/members/$(request.auth.uid))
+        && memberDoc().email is string
+        && memberDoc().email.lower() == request.auth.token.email.lower();
+    }
+
+    match /members/{uid} {
+      // Os dois membros se enxergam para que a lista possa mostrar o apelido
+      // atual de quem adicionou cada anime.
+      allow read: if isMember();
+
+      // Ativação e desativação de conta são exclusivas do Console/Admin SDK.
+      allow create, delete: if false;
+
+      // A pessoa só mexe no próprio apelido; `email` é imutável pelo cliente.
+      allow update: if isMember()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname'])
+        && request.resource.data.nickname is string
+        && request.resource.data.nickname.size() > 0
+        && request.resource.data.nickname.size() <= 40;
+    }
+
+    match /animes/{animeId} {
+      allow read, delete: if isMember();
+
+      allow create: if isMember()
+        && request.resource.data.addedBy == request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 300
+        && request.resource.data.order is string
+        && request.resource.data.order.size() > 0
+        && request.resource.data.watched == false;
+
+      // Qualquer membro edita qualquer anime (a lista é das duas), mas a
+      // autoria original não pode ser reescrita.
+      allow update: if isMember()
+        && request.resource.data.addedBy == resource.data.addedBy
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.order is string
+        && request.resource.data.order.size() > 0
+        && request.resource.data.watched is bool;
+    }
+
+    // Tudo que não foi declarado acima fica fechado.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

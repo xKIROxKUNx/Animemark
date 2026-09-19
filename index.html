@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0"
+    />
+    <meta name="theme-color" content="#12101a" />
+    <meta name="description" content="Nossa lista de animes para assistir" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="AnimeMark" />
+    <link rel="icon" type="image/svg+xml" href="./icons/favicon.svg" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <title>AnimeMark</title>
+  </head>
+  <body>
+    <!-- Cada tela é uma <section>; só uma fica com [data-active] por vez. -->
+    <div id="app">
+      <section class="screen screen--center" id="screen-loading" data-active>
+        <div class="spinner" role="status" aria-label="Carregando"></div>
+      </section>
+
+      <section class="screen screen--center" id="screen-login">
+        <form class="card card--auth" id="login-form" novalidate>
+          <h1 class="brand">AnimeMark</h1>
+          <p class="muted">Nossa lista de animes para assistir.</p>
+
+          <label class="field">
+            <span>E-mail</span>
+            <input
+              type="email"
+              id="login-email"
+              autocomplete="username"
+              inputmode="email"
+              required
+            />
+          </label>
+
+          <label class="field">
+            <span>Senha</span>
+            <input type="password" id="login-password" autocomplete="current-password" required />
+          </label>
+
+          <p class="form-error" id="login-error" role="alert" hidden></p>
+
+          <button class="btn btn--primary" type="submit" id="login-submit">Entrar</button>
+          <button class="btn btn--link" type="button" id="login-reset">Esqueci minha senha</button>
+          <p class="muted muted--small">
+            As contas são criadas pelo administrador. Não há cadastro por aqui.
+          </p>
+        </form>
+      </section>
+
+      <section class="screen screen--center" id="screen-denied">
+        <div class="card card--auth">
+          <h1 class="brand">Conta não autorizada</h1>
+          <p class="muted" id="denied-detail">
+            Este e-mail não está ativado para a lista. Peça para o administrador liberar o acesso.
+          </p>
+          <button class="btn btn--primary" type="button" id="denied-signout">Sair</button>
+        </div>
+      </section>
+
+      <section class="screen screen--center" id="screen-nickname">
+        <form class="card card--auth" id="nickname-form" novalidate>
+          <h1 class="brand">Como te chamamos?</h1>
+          <p class="muted">Esse apelido aparece nos animes que você adicionar.</p>
+
+          <label class="field">
+            <span>Apelido</span>
+            <input type="text" id="nickname-input" maxlength="40" autocomplete="nickname" required />
+          </label>
+
+          <p class="form-error" id="nickname-error" role="alert" hidden></p>
+
+          <button class="btn btn--primary" type="submit" id="nickname-submit">Salvar</button>
+          <button class="btn btn--link" type="button" id="nickname-signout">Sair</button>
+        </form>
+      </section>
+
+      <section class="screen screen--list" id="screen-list">
+        <header class="topbar">
+          <h1 class="brand brand--small">AnimeMark</h1>
+          <div class="topbar__actions">
+            <span class="chip" id="whoami" title="Toque para trocar o apelido"></span>
+            <button class="icon-btn" type="button" id="signout-btn" aria-label="Sair" title="Sair">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <p class="offline-banner" id="offline-banner" hidden>
+          Sem conexão — as mudanças sincronizam quando a internet voltar.
+        </p>
+
+        <main class="list-wrap">
+          <p class="empty" id="list-empty" hidden>
+            A lista está vazia.<br />Toque em <strong>+</strong> para adicionar o primeiro anime.
+          </p>
+          <ul class="list" id="anime-list"></ul>
+        </main>
+
+        <button class="fab" type="button" id="add-btn" aria-label="Adicionar anime">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M12 5v14M5 12h14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </section>
+    </div>
+
+    <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

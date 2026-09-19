@@ -1,0 +1,116 @@
+# Configuração do AnimeMark
+
+Passo a passo para deixar o app no ar. Leva uns 15 minutos e só precisa ser
+feito uma vez.
+
+---
+
+## 1. Criar o projeto no Firebase
+
+1. Abra <https://console.firebase.google.com> e clique em **Adicionar projeto**.
+   Pode chamar de `animemark`. O Google Analytics é dispensável.
+2. Dentro do projeto, em **Criação → Firestore Database**, clique em **Criar
+   banco de dados**. Escolha a região `southamerica-east1` (São Paulo) e comece
+   em **modo de produção** — as regras deste repositório serão aplicadas no
+   passo 4 e substituem as padrão.
+3. Em **Criação → Authentication → Sign-in method**, ative **E-mail/senha**.
+   Deixe "Link de e-mail" **desativado**.
+
+## 2. Registrar o app web e copiar a configuração
+
+1. Na engrenagem ⚙️ → **Configurações do projeto** → role até **Seus apps** →
+   ícone `</>` (Web). Chame de `AnimeMark`. **Não** marque Firebase Hosting.
+2. Copie o objeto `firebaseConfig` que aparece e cole em
+   [`src/firebase-config.js`](src/firebase-config.js), substituindo os
+   `COLE_AQUI_...`.
+
+> Esses valores **não são segredo**. Todo PWA precisa deles no bundle e qualquer
+> pessoa consegue lê-los abrindo o site. Quem protege a lista são as regras do
+> passo 4, que exigem um documento de ativação com o e-mail conferindo.
+
+3. Ainda em **Authentication → Settings → Domínios autorizados**, adicione
+   `xkiroxkunx.github.io`. Sem isso o login falha no site publicado.
+
+## 3. Criar as duas contas
+
+Não existe cadastro dentro do app — de propósito. As contas nascem no console:
+
+1. **Authentication → Users → Adicionar usuário**.
+2. Informe o e-mail e uma senha. Repita para a segunda pessoa.
+3. **Copie o UID** de cada uma (a coluna "Identificador do usuário").
+
+## 4. Ativar as contas e aplicar as regras
+
+### Ativação (é o que libera o acesso)
+
+Para cada pessoa, em **Firestore Database → Iniciar coleção**:
+
+- Coleção: `members`
+- ID do documento: **o UID copiado no passo 3**
+- Campos:
+  - `email` (string) → exatamente o mesmo e-mail da conta
+  - `nickname` (string) → deixe vazio; a pessoa escolhe no primeiro login
+
+Se o documento não existir, ou se o `email` não bater com o da conta, a pessoa
+consegue entrar mas vê a tela **"Conta não autorizada"** e não lê nem escreve
+nada. É esse o mecanismo de ativação.
+
+### Regras e índices
+
+```bash
+npm install
+npx firebase login          # abre o navegador
+npx firebase use --add      # escolha o projeto criado no passo 1
+npx firebase deploy --only firestore:rules,firestore:indexes
+```
+
+O índice composto (`watched`, `order`, `createdAt`) leva alguns minutos para
+ficar pronto. Enquanto isso, a lista pode mostrar um aviso — é temporário.
+
+## 5. Publicar no GitHub Pages
+
+1. No repositório: **Settings → Pages → Build and deployment → Source:
+   GitHub Actions**.
+2. Faça merge na branch `main`. O workflow
+   [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) builda e
+   publica sozinho.
+3. O app fica em <https://xkiroxkunx.github.io/Animemark/>.
+
+## 6. Instalar no celular
+
+- **Android (Chrome)**: menu ⋮ → *Instalar app*.
+- **iPhone (Safari)**: botão compartilhar → *Adicionar à Tela de Início*.
+
+---
+
+## Desenvolvimento local
+
+```bash
+npm install
+npm run dev        # http://localhost:5173/Animemark/
+```
+
+Para rodar contra os emuladores em vez do projeto real:
+
+```bash
+npm run emulators                       # terminal 1
+npm run test:rules                      # terminal 2 — regras de segurança
+VITE_USE_EMULATORS=true npm run build   # terminal 2 — build apontado ao emulador
+npm run test:e2e                        # terminal 2 — smoke test do app inteiro
+```
+
+Os ícones são gerados a partir de `public/icons/favicon.svg`:
+
+```bash
+node scripts/gerar-icones.mjs
+```
+
+## Resolução de problemas
+
+| Sintoma | Causa provável |
+|---|---|
+| "Conta não autorizada" | Falta o doc `members/{uid}` ou o `email` não bate |
+| `auth/operation-not-allowed` | E-mail/senha não foi ativado no passo 1.3 |
+| `auth/unauthorized-domain` | Falta adicionar `xkiroxkunx.github.io` no passo 2.3 |
+| Lista vazia com aviso de índice | O índice do passo 4 ainda está sendo construído |
+| Campo do IMDb em branco | O Wikidata não mapeia esse anime — preencha à mão no modal |
