@@ -127,7 +127,13 @@ async function garantirFirestore(api, projeto, regiao) {
     { ignorar: [403] }
   );
   if (bancos.ignorado) {
-    return `pulado (sem permissão para listar bancos — crie o Firestore no console)`;
+    // A chave do Admin SDK não pode ativar APIs; quem liga o Firestore é o
+    // console, ao criar o banco pela primeira vez.
+    throw new Error(
+      'a Cloud Firestore API ainda não está ativada neste projeto. ' +
+        'No console: Criação → Firestore Database → Criar banco de dados ' +
+        `(região ${regiao}, modo de produção).`
+    );
   }
   if ((bancos.databases ?? []).some((b) => b.name.endsWith('/(default)'))) {
     return 'já existia';
@@ -150,6 +156,16 @@ async function garantirFirestore(api, projeto, regiao) {
 }
 
 async function ligarEmailSenha(api, projeto) {
+  const atual = await api(
+    `https://identitytoolkit.googleapis.com/admin/v2/projects/${projeto}/config`,
+    { ignorar: [404] }
+  );
+  if (atual.ignorado === 404) {
+    throw new Error(
+      'o Authentication ainda não foi inicializado neste projeto. ' +
+        'No console: Criação → Authentication → Comece agora.'
+    );
+  }
   await api(
     `https://identitytoolkit.googleapis.com/admin/v2/projects/${projeto}/config?updateMask=signIn.email`,
     {
@@ -172,10 +188,9 @@ async function garantirAppWeb(api, projeto) {
     app = op.done ? op.response : await esperarOperacao(api, op.name);
   }
 
-  const config = await api(
+  return api(
     `https://firebase.googleapis.com/v1beta1/projects/${projeto}/webApps/${app.appId}/config`
   );
-  return config;
 }
 
 async function garantirConta(api, projeto, { email, senha }) {
@@ -262,27 +277,62 @@ async function principal() {
   console.log(`Projeto: ${projeto}\n`);
   const api = criarApi(await pegarToken(sa));
 
-  console.log(`1. Firestore ............ ${await garantirFirestore(api, projeto, args.regiao)}`);
-  console.log(`2. Login e-mail/senha ... ${await ligarEmailSenha(api, projeto)}`);
+  // Um passo que falha não derruba os outros: o que der para adiantar é
+  // adiantado, e no fim sai a lista do que ainda falta. Rodar de novo depois
+  // de resolver retoma de onde parou.
+  const pendencias = [];
+  const tentar = async (rotulo, fn) => {
+    try {
+      const r = await fn();
+      console.log(`${rotulo.padEnd(24)} ${r ?? 'ok'}`);
+      return { ok: true, valor: r };
+    } catch (erro) {
+      console.log(`${rotulo.padEnd(24)} FALHOU`);
+      pendencias.push(`${rotulo.trim()}: ${erro.message}`);
+      return { ok: false };
+    }
+  };
 
-  const config = await garantirAppWeb(api, projeto);
-  console.log(`3. App web .............. ${config.appId}`);
-  console.log(`   config gravada em .... ${await gravarConfig(config)}`);
+  const firestore = await tentar('1. Firestore .........', () =>
+    garantirFirestore(api, projeto, args.regiao)
+  );
+  const auth = await tentar('2. Login e-mail/senha ', () => ligarEmailSenha(api, projeto));
 
-  console.log('4. Contas e ativação:');
-  for (const conta of args.contas) {
-    const { uid, novo } = await garantirConta(api, projeto, conta);
-    const estado = await garantirAtivacao(api, projeto, uid, conta.email);
-    console.log(`   ${conta.email} → uid ${uid} (conta ${novo ? 'criada' : 'já existia'}, ativação ${estado})`);
+  const app = await tentar('3. App web ...........', async () => {
+    const config = await garantirAppWeb(api, projeto);
+    await gravarConfig(config);
+    return `${config.appId} → config gravada em src/firebase-config.js`;
+  });
+
+  if (auth.ok && firestore.ok) {
+    console.log('4. Contas e ativação:');
+    for (const conta of args.contas) {
+      await tentar(`   ${conta.email}`, async () => {
+        const { uid, novo } = await garantirConta(api, projeto, conta);
+        const estado = await garantirAtivacao(api, projeto, uid, conta.email);
+        return `uid ${uid} (conta ${novo ? 'criada' : 'já existia'}, ativação ${estado})`;
+      });
+    }
+  } else {
+    console.log('4. Contas e ativação:    pulado (depende dos passos 1 e 2)');
   }
 
-  console.log('5. Regras e índices:');
-  console.log(
-    (await publicarRegras(caminhoChave, projeto))
-      .split('\n')
-      .map((l) => `   ${l}`)
-      .join('\n')
-  );
+  if (firestore.ok) {
+    await tentar('5. Regras e índices ..', async () => {
+      const saida = await publicarRegras(caminhoChave, projeto);
+      return `publicados\n${saida.split('\n').map((l) => `   ${l}`).join('\n')}`;
+    });
+  } else {
+    console.log('5. Regras e índices ..   pulado (depende do passo 1)');
+  }
+
+  if (pendencias.length) {
+    console.log('\nFalta resolver:');
+    for (const p of pendencias) console.log(`  - ${p}`);
+    console.log('\nDepois é só rodar este script de novo — ele retoma de onde parou.');
+    process.exitCode = 1;
+    return;
+  }
 
   console.log(`
 Pronto. Ainda falta, no console:
