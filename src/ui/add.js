@@ -130,8 +130,14 @@ export function abrirAdicionar(sessao, obterAnimes) {
 
     status.textContent = 'Buscando…';
     try {
-      const itens = await buscarAnimes(termo, controlador.signal);
-      status.textContent = itens.length ? '' : 'Nenhum anime encontrado com esse nome.';
+      const { itens, fonte } = await buscarAnimes(termo, controlador.signal);
+      if (!itens.length) {
+        status.textContent = 'Nenhum anime encontrado com esse nome.';
+        return;
+      }
+      // Avisa quando veio da reserva: explica por que os dados podem diferir.
+      status.textContent =
+        fonte === 'AniList' ? 'Resultados do AniList (o MyAnimeList está fora do ar).' : '';
       for (const item of itens) resultados.append(resultadoEl(item, escolher));
     } catch (erro) {
       if (erro.code === 'abortado') return;

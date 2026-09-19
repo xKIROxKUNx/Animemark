@@ -173,8 +173,43 @@ const JIKAN_DB = {
 
 const IMDB_POR_MAL = { 52991: 'tt22248376', 9253: 'tt1910272' };
 
+// Permite ao teste derrubar o Jikan no meio da execução, como aconteceu de
+// verdade (504 "MyAnimeList may be down").
+let jikanFora = false;
+
+const ANILIST_MEDIA = {
+  idMal: 813,
+  title: { romaji: 'Dragon Ball Z', english: 'Dragon Ball Z' },
+  coverImage: { extraLarge: 'https://cdn.myanimelist.net/images/anime/1/dbz-xl.jpg', large: 'https://cdn.myanimelist.net/images/anime/1/dbz.jpg' },
+  description: 'Cinco anos depois, <b>Goku</b> descobre sua origem.<br><br>Fonte: AniList',
+  seasonYear: 1989,
+  episodes: 291,
+  averageScore: 79,
+  format: 'TV',
+  status: 'FINISHED',
+  genres: ['Action', 'Adventure'],
+};
+
 async function instalarStubs(contexto) {
+  await contexto.route('https://graphql.anilist.co', async (rota) => {
+    const corpo = JSON.parse(rota.request().postData() ?? '{}');
+    const q = (corpo.variables?.q ?? '').toLowerCase();
+    await rota.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: { Page: { media: q.includes('dragon') ? [ANILIST_MEDIA] : [] } } }),
+    });
+  });
+
   await contexto.route('https://api.jikan.moe/**', async (rota) => {
+    if (jikanFora) {
+      await rota.fulfill({
+        status: 504,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 504, type: 'BadResponseException', message: 'Jikan failed to connect to MyAnimeList.' }),
+      });
+      return;
+    }
     const q = new URL(rota.request().url()).searchParams.get('q')?.toLowerCase() ?? '';
     const chave = Object.keys(JIKAN_DB).find((k) => q.includes(k));
     await rota.fulfill({
@@ -482,6 +517,50 @@ async function rodar() {
       await esperarCards(page, quantos + 1);
       const autor = await page.textContent('#anime-list .card-item:last-child .card-item__author');
       assert.equal(autor, 'adicionado por Bia');
+    });
+
+    await passo('cai para o AniList quando o Jikan responde 504', async () => {
+      jikanFora = true;
+      const antes = (await titulos(page)).length;
+
+      await page.click('#add-btn');
+      await page.fill('#add-query', 'dragon');
+      await page.waitForSelector('.resultado:has-text("Dragon Ball Z")', { timeout: 15000 });
+      assert.match(
+        await page.textContent('#add-status'),
+        /AniList.*MyAnimeList está fora do ar/,
+        'a origem dos resultados precisa ficar explícita'
+      );
+      // O metadado tem de sair normalizado para o vocabulário do MAL, e a nota
+      // convertida de 0-100 para 0-10.
+      assert.equal(await page.textContent('.resultado__meta'), '1989 · TV · 291 ep.');
+
+      await page.click('.resultado:has-text("Dragon Ball Z")');
+      await esperarCards(page, antes + 1);
+    });
+
+    await passo('o anime do AniList guarda o idMal e a sinopse sem HTML', async () => {
+      await page.click('#anime-list .card-item:has-text("Dragon Ball Z") .card-item__body');
+      await page.waitForSelector('.modal');
+      assert.equal(await page.inputValue('#det-mal'), '813');
+      const sinopse = await page.textContent('.detalhe__synopsis');
+      assert.ok(!/<[a-z]/i.test(sinopse), `sinopse veio com HTML cru: ${sinopse}`);
+      assert.match(sinopse, /Goku descobre sua origem/);
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.modal', { state: 'detached' });
+      jikanFora = false;
+    });
+
+    await passo('mostra erro quando as duas fontes caem', async () => {
+      jikanFora = true;
+      await contexto.route('https://graphql.anilist.co', (r) => r.abort('failed'));
+      await page.click('#add-btn');
+      await page.fill('#add-query', 'dragon');
+      await page.waitForSelector('#add-status:has-text("HTTP 504")', { timeout: 15000 });
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('.modal', { state: 'detached' });
+      await contexto.unroute('https://graphql.anilist.co');
+      jikanFora = false;
     });
 
     // O service worker fica bloqueado no contexto acima para não interferir

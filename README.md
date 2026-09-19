@@ -11,9 +11,11 @@ Firestore.
 - **Um documento por anime** com nome, ID do MyAnimeList, ID do IMDb, capa e
   sinopse.
 - **Busca automática dos metadados** ao adicionar: o título é procurado no
-  [Jikan](https://jikan.moe) (API pública do MyAnimeList) e o ID do IMDb vem do
-  [Wikidata](https://query.wikidata.org). Nenhuma chave de API envolvida. O que
-  não for encontrado pode ser preenchido à mão.
+  [Jikan](https://jikan.moe) (API pública do MyAnimeList), com o
+  [AniList](https://anilist.co) como reserva quando o Jikan cai — ele também
+  devolve o `idMal`, então o ID do MyAnimeList continua vindo. O ID do IMDb sai
+  do [Wikidata](https://query.wikidata.org). Nenhuma chave de API envolvida, e
+  o que não for encontrado pode ser preenchido à mão.
 - **Quem adicionou** fica registrado em cada anime, pelo apelido escolhido no
   login.
 - **Ordem de criação** por padrão (mais antigo primeiro) e **reordenável**
@@ -63,11 +65,11 @@ que mantém os assistidos no fim e deixa a lista inteira sair com um único
 - **17 casos de regras** cobrindo a ativação por documento: conta sem ativação,
   e-mail divergente, imutabilidade do `email`, quem pode mudar qual apelido e
   o que pode ser gravado num anime.
-- **17 verificações end-to-end** no Chromium contra os emuladores: login,
+- **20 verificações end-to-end** no Chromium contra os emuladores: login,
   escolha de apelido, busca, reordenação por arrastar, marcar/desmarcar como
-  assistido, edição dos IDs, remoção, visão da segunda pessoa e registro do
-  service worker. As APIs externas são interceptadas, então não depende de
-  internet.
+  assistido, edição dos IDs, remoção, visão da segunda pessoa, a queda para o
+  AniList quando o Jikan responde 504, e o registro do service worker. As APIs
+  externas são interceptadas, então não depende de internet.
 
 ## Deploy
 

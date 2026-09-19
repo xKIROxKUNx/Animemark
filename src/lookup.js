@@ -1,11 +1,14 @@
 // Busca de metadados sem nenhuma chave de API:
 //   - Jikan (API pública do MyAnimeList) para título, capa, sinopse e mal_id;
+//   - AniList como reserva quando o Jikan falha (ele também devolve o idMal,
+//     então o ID do MyAnimeList continua vindo mesmo com o MAL fora do ar);
 //   - Wikidata para converter o mal_id no ID do IMDb.
 //
 // Tudo aqui é "melhor esforço": se a rede falhar ou o anime não estiver mapeado,
 // o app segue funcionando e os IDs continuam editáveis à mão no modal.
 
 const JIKAN = 'https://api.jikan.moe/v4/anime';
+const ANILIST = 'https://graphql.anilist.co';
 const WIKIDATA = 'https://query.wikidata.org/sparql';
 const TIMEOUT_MS = 10000;
 
@@ -40,6 +43,98 @@ function normalizar(item) {
   };
 }
 
+// O AniList usa vocabulário próprio; traduzimos para o mesmo do MyAnimeList
+// para que o card não mude de linguagem conforme a fonte que respondeu.
+const FORMATO_ANILIST = {
+  TV: 'TV',
+  TV_SHORT: 'TV Short',
+  MOVIE: 'Movie',
+  SPECIAL: 'Special',
+  OVA: 'OVA',
+  ONA: 'ONA',
+  MUSIC: 'Music',
+};
+
+const SITUACAO_ANILIST = {
+  FINISHED: 'Finished Airing',
+  RELEASING: 'Currently Airing',
+  NOT_YET_RELEASED: 'Not yet aired',
+  CANCELLED: 'Cancelled',
+  HIATUS: 'On Hiatus',
+};
+
+/**
+ * A sinopse do AniList vem com marcação HTML. Nunca a inserimos como HTML
+ * (o app usa textContent), então aqui é só para não exibir as tags cruas.
+ */
+function limparHtml(texto) {
+  if (typeof texto !== 'string') return null;
+  const limpo = texto
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return limpo || null;
+}
+
+function normalizarAniList(m) {
+  return {
+    malId: m.idMal ?? null,
+    title: m.title?.romaji ?? m.title?.english ?? 'Sem título',
+    titleEnglish: m.title?.english ?? null,
+    imageUrl: m.coverImage?.extraLarge ?? m.coverImage?.large ?? null,
+    thumbUrl: m.coverImage?.large ?? m.coverImage?.medium ?? null,
+    synopsis: limparHtml(m.description),
+    year: m.seasonYear ?? m.startDate?.year ?? null,
+    episodes: m.episodes ?? null,
+    // averageScore é 0-100 no AniList e 0-10 no MAL.
+    score: typeof m.averageScore === 'number' ? Math.round(m.averageScore) / 10 : null,
+    type: FORMATO_ANILIST[m.format] ?? m.format ?? null,
+    status: SITUACAO_ANILIST[m.status] ?? m.status ?? null,
+    genres: Array.isArray(m.genres) ? m.genres : [],
+  };
+}
+
+const CONSULTA_ANILIST = `query ($q: String) {
+  Page(perPage: 10) {
+    media(search: $q, type: ANIME, sort: SEARCH_MATCH) {
+      idMal
+      title { romaji english }
+      coverImage { extraLarge large medium }
+      description(asHtml: false)
+      seasonYear
+      startDate { year }
+      episodes
+      averageScore
+      format
+      status
+      genres
+    }
+  }
+}`;
+
+async function buscarNoAniList(q, sinal) {
+  const resp = await fetch(ANILIST, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ query: CONSULTA_ANILIST, variables: { q } }),
+    signal: sinal,
+  });
+  if (!resp.ok) {
+    const e = new Error(`HTTP ${resp.status}`);
+    e.status = resp.status;
+    throw e;
+  }
+  const json = await resp.json();
+  const lista = json?.data?.Page?.media;
+  return Array.isArray(lista) ? lista.map(normalizarAniList) : [];
+}
+
 /** Monta a URL da busca. `completa` liga os filtros opcionais do Jikan. */
 function urlBusca(q, completa) {
   const params = new URLSearchParams({ q, limit: '10' });
@@ -62,18 +157,20 @@ async function pedir(url, sinal) {
 }
 
 /**
- * Busca animes por título no Jikan.
+ * Busca animes por título, com o Jikan como fonte principal e o AniList como
+ * reserva.
  *
- * Se algum filtro opcional for recusado (4xx), tenta de novo só com `q` e
- * `limit` — o mínimo que a API sempre aceita — em vez de desistir.
+ * Duas camadas de tolerância a falha, aprendidas na prática:
+ *  - se o Jikan recusar os filtros opcionais (4xx), refaz com o mínimo;
+ *  - se o Jikan falhar de vez (o 504 "MyAnimeList may be down" é comum),
+ *    cai para o AniList, que também devolve o `idMal`.
  *
- * @returns {Promise<Array>} lista normalizada (vazia se nada for encontrado)
+ * @returns {Promise<{itens: Array, fonte: 'MyAnimeList'|'AniList'}>}
  * @throws {Error} com `code` 'abortado' | 'tempo' | 'rate-limit' | 'http' | 'rede'
- *                 e `detalhe` com o que deu errado de fato
  */
 export async function buscarAnimes(termo, sinalExterno) {
   const q = termo.trim();
-  if (q.length < 2) return [];
+  if (q.length < 2) return { itens: [], fonte: 'MyAnimeList' };
 
   const { sinal, limpar } = comTimeout(sinalExterno);
 
@@ -89,9 +186,23 @@ export async function buscarAnimes(termo, sinalExterno) {
         throw erro;
       }
     }
-    return Array.isArray(json.data) ? json.data.map(normalizar) : [];
-  } catch (erro) {
-    throw classificar(erro, sinalExterno);
+    const itens = Array.isArray(json.data) ? json.data.map(normalizar) : [];
+    return { itens, fonte: 'MyAnimeList' };
+  } catch (erroJikan) {
+    const classificado = classificar(erroJikan, sinalExterno);
+    // Cancelamento e tempo esgotado não são problema do Jikan: não adianta
+    // perguntar ao AniList.
+    if (classificado.code === 'abortado' || classificado.code === 'tempo') throw classificado;
+
+    try {
+      console.warn('Jikan indisponível; tentando o AniList.');
+      return { itens: await buscarNoAniList(q, sinal), fonte: 'AniList' };
+    } catch (erroAniList) {
+      const reserva = classificar(erroAniList, sinalExterno);
+      if (reserva.code === 'abortado') throw reserva;
+      // As duas fontes caíram: o erro do Jikan é o mais informativo.
+      throw classificado;
+    }
   } finally {
     limpar();
   }
